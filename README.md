@@ -1,4 +1,4 @@
-# ChatMaster: Real Time Chat App | JWT, Socket.io
+# Chitchat: Real Time Chat App | JWT, Socket.io
 
 
 Some Features:
