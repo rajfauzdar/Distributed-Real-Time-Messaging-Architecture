@@ -60,6 +60,11 @@ await dlqProducer.connect();
 const consumer = kafka.consumer({
 	groupId: process.env.KAFKA_GROUP_ID || "chat-persister",
 	maxWaitTimeInMs: 50, // flush small batches quickly: low persistence lag at low traffic, big batches under load
+	// Faster group recovery after a broker/consumer restart (kafkajs defaults are 30s / 3s / 60s):
+	// a dead consumer is noticed after 10s instead of 30s, which is how long its partitions sit idle.
+	sessionTimeout: 10_000,
+	heartbeatInterval: 3_000,
+	rebalanceTimeout: 20_000,
 });
 await consumer.connect();
 await consumer.subscribe({ topic: TOPIC, fromBeginning: true });

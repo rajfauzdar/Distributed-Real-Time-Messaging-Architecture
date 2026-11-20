@@ -1,78 +1,45 @@
 {
-	
-	"name": "chat-app-yt",
-	
-	"version": "1.0.0",
-	
-	"description": "",
-	
-	"main": "server.js",
-	
-	"scripts": {
-	
-		
-	"server": "nodemon backend/server.js",
-	
-		
-	"start": "node backend/server.js",
-	
-		
-	"build": "npm install && npm install --prefix frontend && npm run build --prefix frontend"
-	
-	},
-	
+	"name": "chitchat",
+	"version": "2.0.0",
+	"description": "Real-time chat: WebSockets + Redis Pub/Sub + Kafka write buffer + MongoDB, React/Zustand client with optimistic UI",
+	"main": "backend/server.js",
 	"type": "module",
-	
-	"keywords": [],
-	
-	"author": "",
-	
-	"license": "ISC",
-	
-	"dependencies": {
-	
-		
-	"@socket.io/redis-adapter": "^8.3.0",
-	
-		
-	"bcryptjs": "^2.4.3",
-	
-		
-	"cookie-parser": "^1.4.6",
-	
-		
-	"dotenv": "^16.4.5",
-	
-		
-	"express": "^4.19.2",
-	
-		
-	"express-rate-limit": "^8.7.5",
-	
-		
-	"helmet": "^8.3.0",
-	
-		
-	"jsonwebtoken": "^9.0.2",
-	
-		
-	"kafkajs": "^2.2.4",
-	
-		
-	"mongoose": "^8.4.5",
-	
-		
-	"redis": "^4.7.1",
-	
-		
-	"socket.io": "^4.7.5"
-	
+	"scripts": {
+		"server": "nodemon backend/server.js",
+		"start": "node backend/server.js",
+		"consumer": "node backend/consumer.js",
+		"build": "npm install && npm install --prefix frontend && npm run build --prefix frontend",
+		"test:unit": "node tests/unit/store.test.mjs && node tests/unit/outbox.test.mjs",
+		"test:api": "node tests/api.test.mjs && node tests/idempotency.test.mjs && node tests/unread-pagination.test.mjs",
+		"test:stack": "node tests/cross-instance.test.mjs && node tests/failover.test.mjs && node tests/kafka.test.mjs",
+		"test:cleanup": "node tests/cleanup.mjs",
+		"load": "node tests/load.mjs"
 	},
-	
+	"keywords": [
+		"chat",
+		"websockets",
+		"socket.io",
+		"redis",
+		"kafka",
+		"mongodb"
+	],
+	"license": "ISC",
+	"dependencies": {
+		"@socket.io/redis-adapter": "^8.3.0",
+		"bcryptjs": "^2.4.3",
+		"cookie-parser": "^1.4.6",
+		"dotenv": "^16.4.5",
+		"express": "^4.19.2",
+		"express-rate-limit": "^8.7.5",
+		"helmet": "^8.3.0",
+		"jsonwebtoken": "^9.0.2",
+		"kafkajs": "^2.2.4",
+		"mongoose": "^8.4.5",
+		"redis": "^4.7.1",
+		"socket.io": "^4.7.5"
+	},
 	"devDependencies": {
-	
-		
-	"nodemon": "^3.1.4"
-	
+		"nodemon": "^3.1.4",
+		"socket.io-client": "^4.8.4"
 	}
 }
