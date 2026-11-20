@@ -1,0 +1,45 @@
+# Production overrides, layered on top of the root docker-compose.yml:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+#
+# Differences from local: HTTPS via Caddy (automatic Let's Encrypt certificate), secure cookies, and nothing
+# except ports 80/443 is reachable from the internet.
+services:
+  app1:
+    ports: !reset []
+    environment:
+      NODE_ENV: production
+  app2:
+    ports: !reset []
+    environment:
+      NODE_ENV: production
+  consumer:
+    environment:
+      NODE_ENV: production
+  kafka:
+    ports: !reset []
+
+  # local-only load balancer, replaced by Caddy below (profile is never activated in production)
+  nginx:
+    profiles: ["dev-only"]
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # keeps the certificate across restarts
+      - caddy_config:/config
+    depends_on:
+      - app1
+      - app2
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

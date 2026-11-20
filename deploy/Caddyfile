@@ -1,0 +1,11 @@
+# Caddy terminates TLS (certificate is issued automatically for SITE_ADDRESS) and load-balances the API instances.
+# WebSocket upgrades are proxied automatically.
+{$SITE_ADDRESS} {
+	encode gzip
+
+	reverse_proxy app1:5000 app2:5000 {
+		lb_policy round_robin
+		health_uri /healthz
+		health_interval 10s
+	}
+}

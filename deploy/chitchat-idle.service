@@ -1,0 +1,9 @@
+[Unit]
+Description=Shut the VM down when ChitChat has been idle
+After=docker.service
+
+[Service]
+Type=oneshot
+# optional IDLE_MINUTES / GRACE_MINUTES overrides can be put in /opt/chitchat/.env
+EnvironmentFile=-/opt/chitchat/.env
+ExecStart=/usr/local/bin/chitchat-idle-shutdown.sh
