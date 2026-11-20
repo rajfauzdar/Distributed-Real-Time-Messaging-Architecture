@@ -6,7 +6,11 @@
 //
 // Reports API latency, end-to-end delivery latency (sender's clock -> receiver's socket), message loss/duplicates
 // on the live path, and how long MongoDB takes to hold everything. Exits non-zero if anything was lost or duplicated.
-// Users are created directly in the database with locally signed JWTs (bypassing the signup rate limiter) and removed afterwards.
+//
+// Users: by default they are inserted directly into the database and given locally signed JWTs (this only works
+// against a server that shares your local JWT_SECRET and avoids the signup rate limiter). Against a remote
+// deployment use SIGNUP=1: users are created through the real signup API instead (limited by the signup rate
+// limiter, so keep USERS <= ~40). Test users are removed afterwards either way.
 import {
 	INSTANCE_A, INSTANCE_B, TEST_PREFIX, connectDb, connectSocket, createSuite, http, jwt, mongoose, percentile, removeTestUsers, sleep, waitFor,
 } from "./lib.mjs";
@@ -21,20 +25,33 @@ const runId = `${Date.now().toString(36)}`;
 const usernames = [];
 
 try {
-	// ---- setup: users straight in the DB + signed session cookies
+	// ---- setup
 	const db = await connectDb();
-	const docs = Array.from({ length: USERS }, (_, i) => {
-		const username = `${TEST_PREFIX}load${i}_${runId}`;
-		usernames.push(username);
-		const now = new Date();
-		return { _id: new mongoose.Types.ObjectId(), fullName: `Load ${i}`, username, password: "not-a-real-hash", gender: "male", profilePic: "", createdAt: now, updatedAt: now, __v: 0 };
-	});
-	await db.collection("users").insertMany(docs);
-	const users = docs.map((d, i) => ({
-		id: String(d._id),
-		cookie: `jwt=${jwt.sign({ userId: String(d._id) }, process.env.JWT_SECRET, { expiresIn: "1h" })}`,
-		base: URLS[i % URLS.length],
-	}));
+	let users;
+	if (process.env.SIGNUP === "1") {
+		users = [];
+		for (let i = 0; i < USERS; i++) {
+			const base = URLS[i % URLS.length];
+			const username = `${TEST_PREFIX}l${i}_${runId}`; // usernames are limited to 20 chars
+			usernames.push(username);
+			const r = await http(base, "/api/auth/signup", { body: { fullName: `Load ${i}`, username, password: "secret1", confirmPassword: "secret1", gender: "male" } });
+			if (r.status !== 201) throw new Error(`signup ${i} failed (${r.status}): ${JSON.stringify(r.data)}`);
+			users.push({ id: r.data._id, cookie: r.cookie, base });
+		}
+	} else {
+		const docs = Array.from({ length: USERS }, (_, i) => {
+			const username = `${TEST_PREFIX}l${i}_${runId}`;
+			usernames.push(username);
+			const now = new Date();
+			return { _id: new mongoose.Types.ObjectId(), fullName: `Load ${i}`, username, password: "not-a-real-hash", gender: "male", profilePic: "", createdAt: now, updatedAt: now, __v: 0 };
+		});
+		await db.collection("users").insertMany(docs);
+		users = docs.map((d, i) => ({
+			id: String(d._id),
+			cookie: `jwt=${jwt.sign({ userId: String(d._id) }, process.env.JWT_SECRET, { expiresIn: "1h" })}`,
+			base: URLS[i % URLS.length],
+		}));
+	}
 
 	const sockets = await Promise.all(users.map((u) => connectSocket(u.base, u.cookie)));
 	suite.log(`${sockets.length} sockets connected`);

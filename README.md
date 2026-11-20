@@ -6,6 +6,9 @@ even on a bad network.
 
 **Stack:** Node.js · Express · Socket.io (WebSockets) · Redis Pub/Sub · Apache Kafka · MongoDB · React · Zustand · Tailwind/daisyUI · Docker
 
+**Live demo:** https://8-234-97-46.sslip.io — runs on a GCP VM that is **started on demand and shuts itself down when idle**
+to save cost, so the link may be offline (see [Deploy on GCP](#deploy-on-gcp) for how it is started).
+
 ## Architecture
 
 ```mermaid
@@ -162,6 +165,29 @@ relative, not as production capacity:
 Latency grows with load while throughput flattens near ~400 msg/s — the point where this one machine (load generator included)
 runs out of CPU. Correctness did not degrade: no message was lost or duplicated at any level. I have not profiled the exact bottleneck.
 
+## Deploy on GCP
+
+The whole stack (2 API instances, Redis, Kafka, consumer, Caddy) runs with Docker Compose on a single Compute Engine VM.
+Caddy terminates HTTPS with an automatic Let's Encrypt certificate for `<ip>.sslip.io` (a free hostname that resolves
+to the reserved static IP — no domain needed), and only ports 22/80/443 are open. MongoDB stays on Atlas.
+
+```bash
+bash deploy/gcp-setup.sh   # once: new project, firewall, static IP, VM  (then add the printed IP to Atlas -> Network Access)
+bash deploy/deploy.sh      # ship the last commit and start the stack (JWT_SECRET is generated on the VM)
+bash deploy/start.sh       # turn the VM on (~1 minute until the site answers)
+bash deploy/stop.sh        # turn it off now
+```
+
+**Cost control:** a systemd timer on the VM checks every minute how many WebSockets are open (`/healthz`). With none for
+30 minutes — and never within 15 minutes of boot — the VM shuts itself down, which stops compute billing. Only the disk
+and the reserved IP keep costing a little. Verified on the real VM: it stayed up while a user was connected and stopped
+itself ~4 minutes after the last disconnect when tested with a 2-minute limit.
+
+The same suites run against the deployed site over the internet:
+`BASE_URL=https://<your-host> npm run test:api` (68/68 passing) and
+`SIGNUP=1 URLS=https://<your-host> USERS=30 npm run load` (600 messages: no loss, no duplicates, p50 API latency 92 ms,
+measured from a laptop to a VM in Mumbai).
+
 ## Project layout
 
 ```
@@ -177,6 +203,7 @@ frontend/src/
   utils/readState.js    unread counts + read cursors
   zustand/              single store (conversations, messages, outbox, unread, typing)
 tests/                  unit, API, stack (Redis/Kafka failure) and load tests
+deploy/                 GCP scripts: VM setup, deploy, start/stop, idle auto-shutdown, Caddy (HTTPS)
 Dockerfile, docker-compose.yml, nginx.conf
 ```
 
