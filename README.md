@@ -174,9 +174,13 @@ to the reserved static IP — no domain needed), and only ports 22/80/443 are op
 ```bash
 bash deploy/gcp-setup.sh   # once: new project, firewall, static IP, VM  (then add the printed IP to Atlas -> Network Access)
 bash deploy/deploy.sh      # ship the last commit and start the stack (JWT_SECRET is generated on the VM)
-bash deploy/start.sh       # turn the VM on (~1 minute until the site answers)
-bash deploy/stop.sh        # turn it off now
+bash deploy/resume.sh      # ONE command to bring it back from any state (~1 min if just stopped, ~4 min if fully paused)
+bash deploy/stop.sh        # stop the VM now (cheap pause: the disk and static IP still cost ~$10/month)
+bash deploy/pause.sh       # FULL pause: snapshot, then delete VM + disk + IP (~pennies/month). resume.sh rebuilds it
 ```
+
+After a full pause the app comes back with a **new IP and URL**, and the new IP must be added in Atlas -> Network Access
+(`resume.sh` prints it and copies it to the clipboard).
 
 **Cost control:** a systemd timer on the VM checks every minute how many WebSockets are open (`/healthz`). With none for
 30 minutes — and never within 15 minutes of boot — the VM shuts itself down, which stops compute billing. Only the disk
