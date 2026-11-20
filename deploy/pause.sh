@@ -13,7 +13,8 @@ source .deploy.env
 export CLOUDSDK_CORE_PROJECT="$PROJECT_ID"
 
 set_var() { { grep -v "^$1=" .deploy.env || true; echo "$1=$2"; } > .deploy.env.tmp && mv .deploy.env.tmp .deploy.env; }
-vm_status() { gcloud compute instances describe "$VM" --zone="$ZONE" --format='value(status)' 2>/dev/null || true; }
+# gcloud on Windows ends lines with , which would silently corrupt names/values - always strip it
+vm_status() { gcloud compute instances describe "$VM" --zone="$ZONE" --format='value(status)' 2>/dev/null | tr -d '\r' || true; }
 
 STATUS=$(vm_status)
 if [ -z "$STATUS" ]; then
@@ -37,7 +38,7 @@ fi
 SNAP="chitchat-snap-$(date +%Y%m%d-%H%M%S)"
 echo "Creating snapshot $SNAP ..."
 gcloud compute snapshots create "$SNAP" --source-disk="$VM" --source-disk-zone="$ZONE" --storage-location="$REGION"
-if [ "$(gcloud compute snapshots describe "$SNAP" --format='value(status)')" != "READY" ]; then
+if [ "$(gcloud compute snapshots describe "$SNAP" --format='value(status)' | tr -d '\r')" != "READY" ]; then
 	echo "Snapshot is not READY - NOT deleting anything." >&2
 	exit 1
 fi
@@ -49,7 +50,7 @@ echo "Releasing the static IP..."
 gcloud compute addresses delete chitchat-ip --region="$REGION" --quiet 2>/dev/null || true
 
 # keep only the newest snapshot (snapshots are incremental, so deleting older ones is safe)
-gcloud compute snapshots list --filter="name~^chitchat-snap- AND name!=$SNAP" --format='value(name)' |
+gcloud compute snapshots list --filter="name~^chitchat-snap- AND name!=$SNAP" --format='value(name)' | tr -d '\r' |
 	xargs -r -n1 gcloud compute snapshots delete --quiet
 
 cat <<EOF

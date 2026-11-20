@@ -12,8 +12,9 @@ cd "$(dirname "$0")"
 source .deploy.env
 export CLOUDSDK_CORE_PROJECT="$PROJECT_ID"
 
-vm_status() { gcloud compute instances describe "$VM" --zone="$ZONE" --format='value(status)' 2>/dev/null || true; }
-get_ip() { gcloud compute addresses describe chitchat-ip --region="$REGION" --format='value(address)'; }
+# gcloud on Windows ends lines with , which would silently corrupt values - always strip it
+vm_status() { gcloud compute instances describe "$VM" --zone="$ZONE" --format='value(status)' 2>/dev/null | tr -d '\r' || true; }
+get_ip() { gcloud compute addresses describe chitchat-ip --region="$REGION" --format='value(address)' | tr -d '\r'; }
 STATUS=$(vm_status)
 REBUILT=0
 
