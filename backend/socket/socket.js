@@ -23,6 +23,19 @@ const io = new Server(server, {
 // and presence lives in Redis. Without it everything stays in this process.
 let presence = createMemoryPresence();
 const redisClients = [];
+let dataRedis = null; // plain (non pub/sub) Redis client, when Redis is configured
+
+// "Did I see this key before?" - true only for the first caller. Used so a client retry of an already
+// accepted message is not delivered to the receiver a second time. Shared across instances via Redis.
+const localClaims = new Map(); // fallback without Redis: key -> expiry
+export const claimOnce = async (key, ttlSeconds = 24 * 60 * 60) => {
+	if (dataRedis) return (await dataRedis.set(`claim:${key}`, "1", { NX: true, EX: ttlSeconds })) === "OK";
+	const now = Date.now();
+	if (localClaims.size > 50_000) for (const [k, exp] of localClaims) if (exp < now) localClaims.delete(k);
+	if ((localClaims.get(key) ?? 0) > now) return false;
+	localClaims.set(key, now + ttlSeconds * 1000);
+	return true;
+};
 
 if (process.env.REDIS_URL) {
 	const connectRedis = async (client, name) => {
@@ -38,6 +51,7 @@ if (process.env.REDIS_URL) {
 
 	io.adapter(createAdapter(pubClient, subClient));
 	presence = createRedisPresence(dataClient);
+	dataRedis = dataClient;
 	console.log("Redis connected: Pub/Sub adapter + shared presence enabled");
 } else {
 	console.log("REDIS_URL not set: running single-instance (in-memory) mode");

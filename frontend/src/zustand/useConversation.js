@@ -9,7 +9,12 @@ const initialState = {
 	// Messages the user has sent that the server hasn't confirmed yet (optimistic UI + retry queue).
 	// [{ clientId, senderId, receiverId, message, createdAt, status: "sending"|"failed", attempts, nextAttemptAt, error, failedReason }]
 	outbox: [],
+	// Recently confirmed messages [{ doc, at }]. With the Kafka write path a message is accepted a few ms
+	// before it is readable from history, so a history reload in that window must not make it vanish.
+	recentSent: [],
 };
+
+const RECENT_SENT_TTL_MS = 60_000;
 
 const useConversation = create((set) => ({
 	...initialState,
@@ -57,7 +62,14 @@ const useConversation = create((set) => ({
 			const outbox = state.outbox.filter((o) => o.clientId !== clientId);
 			const isOpen = state.selectedConversation?._id === item.receiverId;
 			const alreadyThere = state.messages.some((m) => m._id === serverMessage._id);
-			return isOpen && !alreadyThere ? { outbox, messages: [...state.messages, serverMessage] } : { outbox };
+			const now = Date.now();
+			const recentSent = [
+				...state.recentSent.filter((r) => now - r.at < RECENT_SENT_TTL_MS),
+				{ doc: serverMessage, at: now },
+			];
+			return isOpen && !alreadyThere
+				? { outbox, recentSent, messages: [...state.messages, serverMessage] }
+				: { outbox, recentSent };
 		}),
 
 	// wipe everything tied to the signed-in user (logout / expired session)

@@ -96,6 +96,12 @@ app.use((err, req, res, next) => {
 
 await connectToMongoDB();
 
+// Kafka mode: the API only produces events; backend/consumer.js (a separate process) persists them.
+const { kafkaEnabled } = await import("./kafka/kafka.js");
+const { startProducer, stopProducer } = await import("./kafka/producer.js");
+if (kafkaEnabled()) startProducer();
+else console.log("KAFKA_BROKERS not set: messages are written directly to MongoDB");
+
 server.listen(PORT, () => {
 	console.log(`Server Running on port ${PORT} (instance ${os.hostname()})`);
 });
@@ -110,6 +116,7 @@ const shutdown = async (signal) => {
 	force.unref();
 	try {
 		await closeSocketLayer(); // stops accepting sockets, clears presence, closes Redis
+		await stopProducer();
 		await new Promise((resolve) => server.close(resolve));
 		await mongoose.disconnect();
 	} catch (err) {

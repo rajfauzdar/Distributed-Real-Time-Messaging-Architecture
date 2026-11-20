@@ -1,24 +1,29 @@
-# Local multi-instance setup used to prove horizontal scaling:
+# Local multi-service setup:
 #
-#   browser ──> nginx :8080 ──> app1 :5000 ─┐
-#                           └─> app2 :5000 ─┼──> redis (Pub/Sub + presence)
-#                                           └──> MongoDB Atlas (from .env)
+#   browser ──> nginx :8080 ──> app1 ─┐                     ┌── consumer ──> MongoDB Atlas (from .env)
+#                           └─> app2 ─┼─> redis (Pub/Sub,   │
+#                                     │    presence)        │
+#                                     └─> kafka  ───────────┘   (API produces, consumer persists)
 #
 # app1 / app2 are also published directly on :5001 / :5002 so tests can pin users to specific instances.
+# Kafka is reachable from the host on localhost:9094 (for tests / tooling).
 #
 #   docker compose up --build
 #   open http://localhost:8080
 
 x-app: &app
-  build: .
+  image: chitchat-app:local # built once (by app1) and shared by every service below
   env_file: .env # MONGO_DB_URI, JWT_SECRET
   environment:
     REDIS_URL: redis://redis:6379
+    KAFKA_BROKERS: kafka:9092
     PORT: "5000"
     # plain http on localhost; use "production" (secure cookies) when serving over HTTPS
     NODE_ENV: development
   depends_on:
     redis:
+      condition: service_healthy
+    kafka:
       condition: service_healthy
   restart: unless-stopped
 
@@ -32,8 +37,43 @@ services:
       timeout: 3s
       retries: 10
 
+  # Apache Kafka in KRaft mode (no ZooKeeper), single node - fine for dev / demo
+  kafka:
+    image: apache/kafka:3.8.0
+    ports: ["9094:9094"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false" # topics are created explicitly by the apps
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+
+  # Persists messages from Kafka into MongoDB. Scale it (docker compose up --scale consumer=3) and the
+  # partitions are shared between the instances of the consumer group.
+  consumer:
+    <<: *app
+    command: ["node", "backend/consumer.js"]
+    healthcheck:
+      disable: true # no HTTP server in this process
+
   app1:
     <<: *app
+    build: .
     ports: ["5001:5000"]
 
   app2:

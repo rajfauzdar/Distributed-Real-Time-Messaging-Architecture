@@ -8,11 +8,19 @@ const Messages = () => {
 	const { messages, loading } = useGetMessages();
 	const selectedId = useConversation((s) => s.selectedConversation?._id);
 	const outbox = useConversation((s) => s.outbox);
+	const recentSent = useConversation((s) => s.recentSent);
 	const bottomRef = useRef();
 
 	// confirmed messages + the ones still being delivered (optimistic), oldest first
 	const visible = useMemo(() => {
-		const confirmedClientIds = new Set(messages.map((m) => m.clientId).filter(Boolean));
+		const known = new Set(messages.map((m) => m._id));
+		const now = Date.now();
+		// accepted by the server but maybe not in the history response yet (Kafka -> MongoDB lag)
+		const recent = recentSent
+			.filter((r) => r.doc.receiverId === selectedId && now - r.at < 60_000 && !known.has(r.doc._id))
+			.map((r) => r.doc);
+		const confirmed = [...messages, ...recent];
+		const confirmedClientIds = new Set(confirmed.map((m) => m.clientId).filter(Boolean));
 		const pending = outbox
 			.filter((o) => o.receiverId === selectedId && !confirmedClientIds.has(o.clientId))
 			.map((o) => ({
@@ -25,8 +33,8 @@ const Messages = () => {
 				status: o.status, // "sending" | "failed"
 				error: o.error,
 			}));
-		return [...messages, ...pending];
-	}, [messages, outbox, selectedId]);
+		return [...confirmed, ...pending];
+	}, [messages, outbox, recentSent, selectedId]);
 
 	useEffect(() => {
 		const timer = setTimeout(() => {
