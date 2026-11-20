@@ -18,7 +18,8 @@ export const SocketContextProvider = ({ children }) => {
 		if (!userId) return;
 
 		// same origin (proxied by Vite in dev); the server authenticates via the httpOnly jwt cookie
-		const newSocket = io({ withCredentials: true });
+		// websocket-only: no HTTP long-polling fallback, so no sticky sessions are needed behind a load balancer
+		const newSocket = io({ withCredentials: true, transports: ["websocket"] });
 
 		setSocket(newSocket);
 		newSocket.on("getOnlineUsers", setOnlineUsers);

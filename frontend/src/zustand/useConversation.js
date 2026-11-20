@@ -23,6 +23,16 @@ const useConversation = create((set) => ({
 	incrementUnread: (userId) =>
 		set((state) => ({ unreadCounts: { ...state.unreadCounts, [userId]: (state.unreadCounts[userId] || 0) + 1 } })),
 
+	typingFrom: {}, // { userId: true } - who is currently typing to me
+	setTyping: (userId, isTyping) =>
+		set((state) => {
+			if (!!state.typingFrom[userId] === isTyping) return {};
+			const typingFrom = { ...state.typingFrom };
+			if (isTyping) typingFrom[userId] = true;
+			else delete typingFrom[userId];
+			return { typingFrom };
+		}),
+
 	conversations: [],
 	setConversations: (conversations) => set({ conversations }),
 }));

@@ -8,6 +8,7 @@ const Conversation = ({ conversation, lastIdx, emoji }) => {
 	const { onlineUsers } = useSocketContext();
 	const isOnline = onlineUsers.includes(conversation._id);
 	const unread = unreadCounts[conversation._id] || 0;
+	const isTyping = useConversation((s) => !!s.typingFrom[conversation._id]);
 
 	return (
 		<>
@@ -28,7 +29,10 @@ const Conversation = ({ conversation, lastIdx, emoji }) => {
 
 				<div className='flex flex-col flex-1'>
 					<div className='flex gap-3 justify-between items-center'>
-						<p className='font-bold text-gray-200'>{conversation.fullName}</p>
+						<div>
+							<p className='font-bold text-gray-200'>{conversation.fullName}</p>
+							{isTyping && <p className='text-xs text-sky-200 italic'>typing…</p>}
+						</div>
 						{unread > 0 && <span className='badge badge-sm badge-primary'>{unread}</span>}
 						<span className='text-xl'>{emoji}</span>
 					</div>

@@ -8,6 +8,7 @@ import { useAuthContext } from "../../context/AuthContext";
 
 const MessageContainer = () => {
 	const { selectedConversation, setSelectedConversation } = useConversation();
+	const isTyping = useConversation((s) => !!s.typingFrom[s.selectedConversation?._id]);
 
 	useEffect(() => {
 		// cleanup function (unmounts)
@@ -32,6 +33,7 @@ const MessageContainer = () => {
 						</button>
 						<span className='label-text'>To:</span>{" "}
 						<span className='text-gray-900 font-bold'>{selectedConversation.fullName}</span>
+						{isTyping && <span className='text-xs text-gray-100 italic ml-2'>typing…</span>}
 					</div>
 					<Messages />
 					<MessageInput />

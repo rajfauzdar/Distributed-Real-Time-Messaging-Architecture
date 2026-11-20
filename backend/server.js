@@ -1,3 +1,4 @@
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -20,7 +21,8 @@ const { default: authRoutes } = await import("./routes/auth.routes.js");
 const { default: messageRoutes } = await import("./routes/message.routes.js");
 const { default: userRoutes } = await import("./routes/user.routes.js");
 const { default: connectToMongoDB } = await import("./db/connectToMongoDB.js");
-const { app, server } = await import("./socket/socket.js");
+const { app, server, io, closeSocketLayer } = await import("./socket/socket.js");
+const { default: mongoose } = await import("mongoose");
 
 // resolve relative to this file, not to wherever the process was started from
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -58,6 +60,12 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/signup", authLimiter);
 
+// Liveness/usage probe for load balancers and the idle auto-shutdown script.
+// `connections` = live sockets on THIS instance; `instance` identifies which instance answered.
+app.get("/healthz", (req, res) => {
+	res.status(200).json({ status: "ok", instance: os.hostname(), connections: io.engine.clientsCount });
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
@@ -89,5 +97,25 @@ app.use((err, req, res, next) => {
 await connectToMongoDB();
 
 server.listen(PORT, () => {
-	console.log(`Server Running on port ${PORT}`);
+	console.log(`Server Running on port ${PORT} (instance ${os.hostname()})`);
 });
+
+// Graceful shutdown: Cloud Run / Docker send SIGTERM when scaling down or redeploying.
+let shuttingDown = false;
+const shutdown = async (signal) => {
+	if (shuttingDown) return;
+	shuttingDown = true;
+	console.log(`${signal} received, shutting down gracefully...`);
+	const force = setTimeout(() => process.exit(1), 10_000);
+	force.unref();
+	try {
+		await closeSocketLayer(); // stops accepting sockets, clears presence, closes Redis
+		await new Promise((resolve) => server.close(resolve));
+		await mongoose.disconnect();
+	} catch (err) {
+		console.error("Error during shutdown:", err.message);
+	}
+	process.exit(0);
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

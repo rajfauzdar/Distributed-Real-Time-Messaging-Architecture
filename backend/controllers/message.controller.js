@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
-import { getReceiverSocketIds, io } from "../socket/socket.js";
+import { emitToUser } from "../socket/socket.js";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LIMIT = 200;
@@ -36,10 +36,8 @@ export const sendMessage = async (req, res) => {
 			message: message.trim(),
 		});
 
-		// deliver to every open tab/device of the receiver
-		for (const socketId of getReceiverSocketIds(receiverId)) {
-			io.to(socketId).emit("newMessage", newMessage);
-		}
+		// deliver to every open tab/device of the receiver, on whichever server instance they're connected to
+		emitToUser(receiverId, "newMessage", newMessage);
 
 		res.status(201).json(newMessage);
 	} catch (error) {
