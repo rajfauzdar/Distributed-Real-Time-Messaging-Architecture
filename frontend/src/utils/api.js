@@ -22,7 +22,9 @@ export const apiFetch = async (url, { body, method, signal, skipAuthExpiry } = {
 	}
 
 	if (!res.ok || data?.error) {
-		throw new Error(data?.error || `Request failed (${res.status})`);
+		const error = new Error(data?.error || `Request failed (${res.status})`);
+		error.status = res.status; // undefined for network failures (fetch itself throws), so callers can tell them apart
+		throw error;
 	}
 
 	return data;

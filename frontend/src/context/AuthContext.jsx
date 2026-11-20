@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { AUTH_EXPIRED_EVENT, apiFetch } from "../utils/api";
+import { resetOutbox } from "../utils/outbox";
 
 export const AuthContext = createContext();
 
@@ -22,7 +23,11 @@ export const AuthContextProvider = ({ children }) => {
 
 	const setAuthUser = (user) => {
 		if (user) localStorage.setItem("chat-user", JSON.stringify(user));
-		else localStorage.removeItem("chat-user");
+		else {
+			localStorage.removeItem("chat-user");
+			// never leak the previous user's chats / unsent messages into the next session
+			resetOutbox();
+		}
 		setAuthUserState(user);
 	};
 

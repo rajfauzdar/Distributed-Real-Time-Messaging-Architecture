@@ -9,7 +9,7 @@ const TYPING_IDLE_MS = 2000; // send "stopTyping" after this much silence
 
 const MessageInput = () => {
 	const [message, setMessage] = useState("");
-	const { loading, sendMessage } = useSendMessage();
+	const { sendMessage } = useSendMessage();
 	const { socket } = useSocketContext();
 	const receiverId = useConversation((s) => s.selectedConversation?._id);
 
@@ -49,13 +49,12 @@ const MessageInput = () => {
 		idleTimerRef.current = setTimeout(stopTyping, TYPING_IDLE_MS);
 	};
 
-	const handleSubmit = async (e) => {
+	const handleSubmit = (e) => {
 		e.preventDefault();
-		if (!message.trim() || loading) return;
+		if (!message.trim()) return;
 		stopTyping();
-		// keep the text if sending failed so the user can retry
-		const sent = await sendMessage(message);
-		if (sent) setMessage("");
+		// optimistic: the message shows up instantly; the outbox delivers it (and retries on failure)
+		if (sendMessage(message)) setMessage("");
 	};
 
 	return (
@@ -70,7 +69,7 @@ const MessageInput = () => {
 					onChange={handleChange}
 				/>
 				<button type='submit' aria-label='Send' className='absolute inset-y-0 end-0 flex items-center pe-3'>
-					{loading ? <div className='loading loading-spinner'></div> : <BsSend />}
+					<BsSend />
 				</button>
 			</div>
 		</form>

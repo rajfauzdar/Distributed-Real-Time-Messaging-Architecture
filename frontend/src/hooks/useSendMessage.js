@@ -1,31 +1,18 @@
-import { useState } from "react";
 import useConversation from "../zustand/useConversation";
-import toast from "react-hot-toast";
-import { apiFetch } from "../utils/api";
+import { useAuthContext } from "../context/AuthContext";
+import { enqueueMessage } from "../utils/outbox";
 
+// Optimistic send: the message appears immediately and is delivered by the outbox queue in the background.
 const useSendMessage = () => {
-	const [loading, setLoading] = useState(false);
+	const { authUser } = useAuthContext();
 	const { selectedConversation } = useConversation();
 
-	// resolves to true when the message was sent
-	const sendMessage = async (message) => {
-		const receiverId = selectedConversation._id;
-		setLoading(true);
-		try {
-			const data = await apiFetch(`/api/messages/send/${receiverId}`, { body: { message } });
-
-			// only show it if the user is still looking at the same chat
-			const current = useConversation.getState();
-			if (current.selectedConversation?._id === receiverId) current.addMessage(data);
-			return true;
-		} catch (error) {
-			toast.error(error.message);
-			return false;
-		} finally {
-			setLoading(false);
-		}
+	const sendMessage = (message) => {
+		if (!selectedConversation) return false;
+		enqueueMessage(authUser._id, selectedConversation._id, message.trim());
+		return true;
 	};
 
-	return { sendMessage, loading };
+	return { sendMessage };
 };
 export default useSendMessage;

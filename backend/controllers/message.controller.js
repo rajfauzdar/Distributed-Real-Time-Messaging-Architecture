@@ -5,12 +5,17 @@ import { emitToUser } from "../socket/socket.js";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LIMIT = 200;
+const CLIENT_ID_REGEX = /^[\w-]{8,64}$/; // e.g. a UUID
 
 export const sendMessage = async (req, res) => {
 	try {
-		const { message } = req.body;
+		const { message, clientId } = req.body;
 		const { id: receiverId } = req.params;
 		const senderId = req.user._id;
+
+		if (clientId !== undefined && (typeof clientId !== "string" || !CLIENT_ID_REGEX.test(clientId))) {
+			return res.status(400).json({ error: "Invalid clientId" });
+		}
 
 		if (!mongoose.isValidObjectId(receiverId)) {
 			return res.status(400).json({ error: "Invalid user id" });
@@ -30,16 +35,29 @@ export const sendMessage = async (req, res) => {
 			return res.status(404).json({ error: "User not found" });
 		}
 
-		const newMessage = await Message.create({
-			senderId,
-			receiverId,
-			message: message.trim(),
-		});
+		let newMessage;
+		let isDuplicate = false;
+		try {
+			newMessage = await Message.create({
+				senderId,
+				receiverId,
+				message: message.trim(),
+				clientId,
+			});
+		} catch (error) {
+			// same clientId sent before (client retry after a lost response): return the original, don't create/deliver again
+			if (error.code === 11000 && clientId) {
+				newMessage = await Message.findOne({ senderId, clientId });
+				isDuplicate = true;
+			} else {
+				throw error;
+			}
+		}
 
 		// deliver to every open tab/device of the receiver, on whichever server instance they're connected to
-		emitToUser(receiverId, "newMessage", newMessage);
+		if (!isDuplicate) emitToUser(receiverId, "newMessage", newMessage);
 
-		res.status(201).json(newMessage);
+		res.status(isDuplicate ? 200 : 201).json(newMessage);
 	} catch (error) {
 		console.log("Error in sendMessage controller: ", error.message);
 		res.status(500).json({ error: "Internal server error" });
