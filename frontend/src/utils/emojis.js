@@ -55,6 +55,9 @@ export const funEmojis = [
 	"🧘",
 ];
 
-export const getRandomEmoji = () => {
-	return funEmojis[Math.floor(Math.random() * funEmojis.length)];
+// deterministic per id, so a user keeps the same emoji across re-renders and sessions
+export const getEmojiForId = (id = "") => {
+	let hash = 0;
+	for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+	return funEmojis[hash % funEmojis.length];
 };

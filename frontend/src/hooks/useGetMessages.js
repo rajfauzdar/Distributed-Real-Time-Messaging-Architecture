@@ -1,28 +1,33 @@
 import { useEffect, useState } from "react";
 import useConversation from "../zustand/useConversation";
 import toast from "react-hot-toast";
+import { apiFetch } from "../utils/api";
 
 const useGetMessages = () => {
 	const [loading, setLoading] = useState(false);
 	const { messages, setMessages, selectedConversation } = useConversation();
+	const selectedId = selectedConversation?._id;
 
 	useEffect(() => {
+		if (!selectedId) return;
+
+		// abort the request when the user switches chats so a slow old response can't overwrite the new chat
+		const controller = new AbortController();
 		const getMessages = async () => {
 			setLoading(true);
 			try {
-				const res = await fetch(`/api/messages/${selectedConversation._id}`);
-				const data = await res.json();
-				if (data.error) throw new Error(data.error);
+				const data = await apiFetch(`/api/messages/${selectedId}`, { signal: controller.signal });
 				setMessages(data);
 			} catch (error) {
-				toast.error(error.message);
+				if (error.name !== "AbortError") toast.error(error.message);
 			} finally {
-				setLoading(false);
+				if (!controller.signal.aborted) setLoading(false);
 			}
 		};
 
-		if (selectedConversation?._id) getMessages();
-	}, [selectedConversation?._id, setMessages]);
+		getMessages();
+		return () => controller.abort();
+	}, [selectedId, setMessages]);
 
 	return { messages, loading };
 };

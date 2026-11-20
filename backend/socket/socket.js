@@ -1,37 +1,71 @@
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
+import jwt from "jsonwebtoken";
 
 const app = express();
 
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
-		origin: ["http://localhost:3000"],
+		origin: process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.split(",") : ["http://localhost:3000"],
 		methods: ["GET", "POST"],
+		credentials: true,
 	},
 });
 
-export const getReceiverSocketId = (receiverId) => {
-	return userSocketMap[receiverId];
+// {userId: Set<socketId>} - a user can be connected from several tabs/devices at once
+const userSocketMap = new Map();
+
+export const getReceiverSocketIds = (receiverId) => {
+	return [...(userSocketMap.get(String(receiverId)) || [])];
 };
 
-const userSocketMap = {}; // {userId: socketId}
+const getJwtFromCookieHeader = (header = "") => {
+	for (const part of header.split(";")) {
+		const idx = part.indexOf("=");
+		if (idx === -1) continue;
+		if (part.slice(0, idx).trim() === "jwt") {
+			try {
+				return decodeURIComponent(part.slice(idx + 1).trim());
+			} catch {
+				return null;
+			}
+		}
+	}
+	return null;
+};
+
+// Authenticate the socket using the same httpOnly JWT cookie the REST API uses,
+// never a client supplied userId.
+io.use((socket, next) => {
+	try {
+		const token = getJwtFromCookieHeader(socket.handshake.headers.cookie);
+		if (!token) return next(new Error("Unauthorized"));
+		const decoded = jwt.verify(token, process.env.JWT_SECRET);
+		socket.data.userId = String(decoded.userId);
+		next();
+	} catch {
+		next(new Error("Unauthorized"));
+	}
+});
 
 io.on("connection", (socket) => {
-	console.log("a user connected", socket.id);
+	const userId = socket.data.userId;
 
-	const userId = socket.handshake.query.userId;
-	if (userId != "undefined") userSocketMap[userId] = socket.id;
+	if (!userSocketMap.has(userId)) userSocketMap.set(userId, new Set());
+	userSocketMap.get(userId).add(socket.id);
 
 	// io.emit() is used to send events to all the connected clients
-	io.emit("getOnlineUsers", Object.keys(userSocketMap));
+	io.emit("getOnlineUsers", [...userSocketMap.keys()]);
 
-	// socket.on() is used to listen to the events. can be used both on client and server side
 	socket.on("disconnect", () => {
-		console.log("user disconnected", socket.id);
-		delete userSocketMap[userId];
-		io.emit("getOnlineUsers", Object.keys(userSocketMap));
+		const sockets = userSocketMap.get(userId);
+		if (sockets) {
+			sockets.delete(socket.id);
+			if (sockets.size === 0) userSocketMap.delete(userId);
+		}
+		io.emit("getOnlineUsers", [...userSocketMap.keys()]);
 	});
 });
 

@@ -10,7 +10,15 @@ Some Features:
 - 👌 Global state management with Zustand
 - 🐞 Error handling both on the server and on the client
 
-### Setup .env file
+### Run locally (development)
+
+```shell
+npm install && npm install --prefix frontend
+npm run server              # API + sockets on :5000
+npm run dev --prefix frontend   # client on :3000 (proxies /api and /socket.io to :5000)
+```
+
+### Setup .env file (see `.env.example`; `MONGO_DB_URI` and `JWT_SECRET` are required)
 
 ```js
 PORT=...

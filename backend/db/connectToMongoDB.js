@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-//dotenv.config();
 
 const connectToMongoDB = async () => {
 	try {
@@ -7,6 +6,8 @@ const connectToMongoDB = async () => {
 		console.log("Connected to MongoDB");
 	} catch (error) {
 		console.log("Error connecting to MongoDB", error.message);
+		// without a database the app is useless - fail fast so the host restarts it
+		process.exit(1);
 	}
 };
 

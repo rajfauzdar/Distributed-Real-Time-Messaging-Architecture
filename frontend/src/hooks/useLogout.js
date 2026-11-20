@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAuthContext } from "../context/AuthContext";
 import toast from "react-hot-toast";
+import { apiFetch } from "../utils/api";
+import useConversation from "../zustand/useConversation";
 
 const useLogout = () => {
 	const [loading, setLoading] = useState(false);
@@ -9,16 +11,10 @@ const useLogout = () => {
 	const logout = async () => {
 		setLoading(true);
 		try {
-			const res = await fetch("/api/auth/logout", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-			});
-			const data = await res.json();
-			if (data.error) {
-				throw new Error(data.error);
-			}
+			await apiFetch("/api/auth/logout", { method: "POST", skipAuthExpiry: true });
 
-			localStorage.removeItem("chat-user");
+			// don't leak the previous user's chats/unread counts into the next session
+			useConversation.setState({ selectedConversation: null, messages: [], conversations: [], unreadCounts: {} });
 			setAuthUser(null);
 		} catch (error) {
 			toast.error(error.message);

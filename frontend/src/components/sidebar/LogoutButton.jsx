@@ -5,9 +5,11 @@ const LogoutButton = () => {
 	const { loading, logout } = useLogout();
 
 	return (
-		<div className='mt-auto'>
+		<div className='mt-auto pt-2'>
 			{!loading ? (
-				<BiLogOut className='w-6 h-6 text-white cursor-pointer' onClick={logout} />
+				<button type='button' onClick={logout} aria-label='Log out' title='Log out'>
+					<BiLogOut className='w-6 h-6 text-white cursor-pointer' />
+				</button>
 			) : (
 				<span className='loading loading-spinner'></span>
 			)}

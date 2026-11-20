@@ -4,6 +4,7 @@ import io from "socket.io-client";
 
 const SocketContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useSocketContext = () => {
 	return useContext(SocketContext);
 };
@@ -11,31 +12,23 @@ export const useSocketContext = () => {
 export const SocketContextProvider = ({ children }) => {
 	const [socket, setSocket] = useState(null);
 	const [onlineUsers, setOnlineUsers] = useState([]);
-	const { authUser } = useAuthContext();
+	const userId = useAuthContext().authUser?._id;
 
 	useEffect(() => {
-		if (authUser) {
-			const socket = io("https://chit-chat-mern-1b8l.onrender.com/", {
-				query: {
-					userId: authUser._id,
-				},
-			});
+		if (!userId) return;
 
-			setSocket(socket);
+		// same origin (proxied by Vite in dev); the server authenticates via the httpOnly jwt cookie
+		const newSocket = io({ withCredentials: true });
 
-			// socket.on() is used to listen to the events. can be used both on client and server side
-			socket.on("getOnlineUsers", (users) => {
-				setOnlineUsers(users);
-			});
+		setSocket(newSocket);
+		newSocket.on("getOnlineUsers", setOnlineUsers);
 
-			return () => socket.close();
-		} else {
-			if (socket) {
-				socket.close();
-				setSocket(null);
-			}
-		}
-	}, [authUser]);
+		return () => {
+			newSocket.close();
+			setSocket(null);
+			setOnlineUsers([]);
+		};
+	}, [userId]);
 
 	return <SocketContext.Provider value={{ socket, onlineUsers }}>{children}</SocketContext.Provider>;
 };

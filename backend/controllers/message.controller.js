@@ -1,6 +1,10 @@
-import Conversation from "../models/conversation.model.js";
+import mongoose from "mongoose";
 import Message from "../models/message.model.js";
-import { getReceiverSocketId, io } from "../socket/socket.js";
+import User from "../models/user.model.js";
+import { getReceiverSocketIds, io } from "../socket/socket.js";
+
+const MAX_MESSAGE_LENGTH = 2000;
+const HISTORY_LIMIT = 200;
 
 export const sendMessage = async (req, res) => {
 	try {
@@ -8,37 +12,33 @@ export const sendMessage = async (req, res) => {
 		const { id: receiverId } = req.params;
 		const senderId = req.user._id;
 
-		let conversation = await Conversation.findOne({
-			participants: { $all: [senderId, receiverId] },
-		});
-
-		if (!conversation) {
-			conversation = await Conversation.create({
-				participants: [senderId, receiverId],
-			});
+		if (!mongoose.isValidObjectId(receiverId)) {
+			return res.status(400).json({ error: "Invalid user id" });
+		}
+		if (String(receiverId) === String(senderId)) {
+			return res.status(400).json({ error: "You can't send a message to yourself" });
+		}
+		if (typeof message !== "string" || !message.trim()) {
+			return res.status(400).json({ error: "Message can't be empty" });
+		}
+		if (message.length > MAX_MESSAGE_LENGTH) {
+			return res.status(400).json({ error: `Message is too long (max ${MAX_MESSAGE_LENGTH} characters)` });
 		}
 
-		const newMessage = new Message({
+		const receiverExists = await User.exists({ _id: receiverId });
+		if (!receiverExists) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		const newMessage = await Message.create({
 			senderId,
 			receiverId,
-			message,
+			message: message.trim(),
 		});
 
-		if (newMessage) {
-			conversation.messages.push(newMessage._id);
-		}
-
-		// await conversation.save();
-		// await newMessage.save();
-
-		// this will run in parallel
-		await Promise.all([conversation.save(), newMessage.save()]);
-
-		// SOCKET IO FUNCTIONALITY WILL GO HERE
-		const receiverSocketId = getReceiverSocketId(receiverId);
-		if (receiverSocketId) {
-			// io.to(<socket_id>).emit() used to send events to specific client
-			io.to(receiverSocketId).emit("newMessage", newMessage);
+		// deliver to every open tab/device of the receiver
+		for (const socketId of getReceiverSocketIds(receiverId)) {
+			io.to(socketId).emit("newMessage", newMessage);
 		}
 
 		res.status(201).json(newMessage);
@@ -53,15 +53,22 @@ export const getMessages = async (req, res) => {
 		const { id: userToChatId } = req.params;
 		const senderId = req.user._id;
 
-		const conversation = await Conversation.findOne({
-			participants: { $all: [senderId, userToChatId] },
-		}).populate("messages"); // NOT REFERENCE BUT ACTUAL MESSAGES
+		if (!mongoose.isValidObjectId(userToChatId)) {
+			return res.status(400).json({ error: "Invalid user id" });
+		}
 
-		if (!conversation) return res.status(200).json([]);
+		// latest N messages of the two-way conversation, returned oldest -> newest
+		const messages = await Message.find({
+			$or: [
+				{ senderId, receiverId: userToChatId },
+				{ senderId: userToChatId, receiverId: senderId },
+			],
+		})
+			.sort({ createdAt: -1 })
+			.limit(HISTORY_LIMIT)
+			.lean();
 
-		const messages = conversation.messages;
-
-		res.status(200).json(messages);
+		res.status(200).json(messages.reverse());
 	} catch (error) {
 		console.log("Error in getMessages controller: ", error.message);
 		res.status(500).json({ error: "Internal server error" });
