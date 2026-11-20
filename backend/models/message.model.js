@@ -34,6 +34,9 @@ messageSchema.index(
 	{ unique: true, partialFilterExpression: { clientId: { $type: "string" } } }
 );
 
+// speeds up the per-sender unread count for a receiver
+messageSchema.index({ receiverId: 1, senderId: 1, createdAt: -1 });
+
 // speeds up loading a two-way conversation
 messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
 

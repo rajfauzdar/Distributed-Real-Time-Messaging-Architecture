@@ -2,6 +2,7 @@ import crypto from "crypto";
 import mongoose from "mongoose";
 import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
+import ReadState from "../models/readState.model.js";
 import { claimOnce, emitToUser } from "../socket/socket.js";
 import { kafkaEnabled } from "../kafka/kafka.js";
 import { KafkaUnavailableError, publishMessage } from "../kafka/producer.js";
@@ -22,7 +23,8 @@ const userExists = async (id) => {
 };
 
 const MAX_MESSAGE_LENGTH = 2000;
-const HISTORY_LIMIT = 200;
+const DEFAULT_PAGE_SIZE = 30;
+const MAX_PAGE_SIZE = 100;
 const CLIENT_ID_REGEX = /^[\w-]{8,64}$/; // e.g. a UUID
 
 export const sendMessage = async (req, res) => {
@@ -109,20 +111,98 @@ export const getMessages = async (req, res) => {
 			return res.status(400).json({ error: "Invalid user id" });
 		}
 
-		// latest N messages of the two-way conversation, returned oldest -> newest
-		const messages = await Message.find({
+		// Cursor pagination, newest first: ?limit=30 for the latest page, then
+		// ?before=<createdAt of the oldest loaded>&beforeId=<its _id> for the page before it.
+		// (createdAt, _id) is used - not createdAt alone - so messages sharing a millisecond are never skipped.
+		const parsedLimit = Number.parseInt(req.query.limit, 10);
+		const limit = Math.min(Math.max(Number.isNaN(parsedLimit) ? DEFAULT_PAGE_SIZE : parsedLimit, 1), MAX_PAGE_SIZE);
+
+		const filter = {
 			$or: [
 				{ senderId, receiverId: userToChatId },
 				{ senderId: userToChatId, receiverId: senderId },
 			],
-		})
-			.sort({ createdAt: -1 })
-			.limit(HISTORY_LIMIT)
+		};
+
+		const { before, beforeId } = req.query;
+		if (before !== undefined) {
+			const beforeDate = new Date(before);
+			if (typeof before !== "string" || Number.isNaN(beforeDate.getTime())) {
+				return res.status(400).json({ error: "Invalid 'before' cursor" });
+			}
+			if (beforeId !== undefined && !mongoose.isValidObjectId(beforeId)) {
+				return res.status(400).json({ error: "Invalid 'beforeId' cursor" });
+			}
+			const cursor = beforeId
+				? { $or: [{ createdAt: { $lt: beforeDate } }, { createdAt: beforeDate, _id: { $lt: beforeId } }] }
+				: { createdAt: { $lt: beforeDate } };
+			filter.$and = [cursor];
+		}
+
+		const page = await Message.find(filter)
+			.sort({ createdAt: -1, _id: -1 })
+			.limit(limit + 1) // one extra row tells us whether an older page exists
 			.lean();
 
-		res.status(200).json(messages.reverse());
+		const hasMore = page.length > limit;
+		if (hasMore) page.pop();
+
+		// returned oldest -> newest, ready to render
+		res.status(200).json({ messages: page.reverse(), hasMore });
 	} catch (error) {
 		console.log("Error in getMessages controller: ", error.message);
+		res.status(500).json({ error: "Internal server error" });
+	}
+};
+
+// Unread messages per sender: { [senderId]: count }
+export const getUnreadCounts = async (req, res) => {
+	try {
+		const me = req.user._id;
+		const states = await ReadState.find({ userId: me }).lean();
+
+		// per peer: messages newer than my cursor; peers I have never opened: everything they sent
+		const clauses = states.map((s) => ({ senderId: s.peerId, createdAt: { $gt: s.lastReadAt } }));
+		const knownPeers = states.map((s) => s.peerId);
+
+		const rows = await Message.aggregate([
+			{ $match: { receiverId: me, $or: [...clauses, { senderId: { $nin: knownPeers } }] } },
+			{ $group: { _id: "$senderId", count: { $sum: 1 } } },
+		]);
+
+		res.status(200).json(Object.fromEntries(rows.map((r) => [String(r._id), r.count])));
+	} catch (error) {
+		console.log("Error in getUnreadCounts controller: ", error.message);
+		res.status(500).json({ error: "Internal server error" });
+	}
+};
+
+// "I have read this chat up to <upTo>" (the createdAt of the newest message the user has seen)
+export const markAsRead = async (req, res) => {
+	try {
+		const { id: peerId } = req.params;
+		const me = req.user._id;
+
+		if (!mongoose.isValidObjectId(peerId)) {
+			return res.status(400).json({ error: "Invalid user id" });
+		}
+		const upTo = new Date(req.body?.upTo);
+		if (typeof req.body?.upTo !== "string" || Number.isNaN(upTo.getTime())) {
+			return res.status(400).json({ error: "Invalid 'upTo' date" });
+		}
+		if (!(await userExists(peerId))) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		// a client can't "pre-read" the future: that would silently swallow messages that arrive later
+		const lastReadAt = new Date(Math.min(upTo.getTime(), Date.now()));
+
+		// $max: the cursor only ever moves forward, so late/out-of-order requests can't mark messages unread again
+		await ReadState.updateOne({ userId: me, peerId }, { $max: { lastReadAt } }, { upsert: true });
+
+		res.status(204).end();
+	} catch (error) {
+		console.log("Error in markAsRead controller: ", error.message);
 		res.status(500).json({ error: "Internal server error" });
 	}
 };

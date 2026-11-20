@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import useConversation from "../zustand/useConversation";
 import toast from "react-hot-toast";
 import { apiFetch } from "../utils/api";
+import { isTabVisible, markRead } from "../utils/readState";
+
+const PAGE_SIZE = 30;
 
 const useGetMessages = () => {
 	const [loading, setLoading] = useState(false);
-	const { messages, setMessages, selectedConversation } = useConversation();
+	const { messages, hasMore, loadingOlder, setHistory, selectedConversation } = useConversation();
 	const selectedId = selectedConversation?._id;
 
 	useEffect(() => {
@@ -16,8 +19,12 @@ const useGetMessages = () => {
 		const getMessages = async () => {
 			setLoading(true);
 			try {
-				const data = await apiFetch(`/api/messages/${selectedId}`, { signal: controller.signal });
-				setMessages(data);
+				const data = await apiFetch(`/api/messages/${selectedId}?limit=${PAGE_SIZE}`, { signal: controller.signal });
+				setHistory(data.messages, data.hasMore);
+
+				// the user is looking at this chat now: move the read cursor to its newest message
+				const newest = data.messages[data.messages.length - 1];
+				if (newest && isTabVisible()) markRead(selectedId, newest.createdAt);
 			} catch (error) {
 				if (error.name !== "AbortError") toast.error(error.message);
 			} finally {
@@ -27,8 +34,33 @@ const useGetMessages = () => {
 
 		getMessages();
 		return () => controller.abort();
-	}, [selectedId, setMessages]);
+	}, [selectedId, setHistory]);
 
-	return { messages, loading };
+	// load the page before the oldest message we have
+	const loadOlder = useCallback(async () => {
+		const { selectedConversation, messages, hasMore, loadingOlder, setLoadingOlder, prependMessages } =
+			useConversation.getState();
+		if (!selectedConversation || !hasMore || loadingOlder || messages.length === 0) return false;
+
+		const id = selectedConversation._id;
+		const oldest = messages[0];
+		const stillOpen = () => useConversation.getState().selectedConversation?._id === id;
+
+		setLoadingOlder(true);
+		try {
+			const query = `limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest.createdAt)}&beforeId=${oldest._id}`;
+			const data = await apiFetch(`/api/messages/${id}?${query}`);
+			if (!stillOpen()) return false; // user moved on while the page was loading
+			prependMessages(data.messages, data.hasMore);
+			return true;
+		} catch (error) {
+			toast.error(error.message);
+			return false;
+		} finally {
+			if (stillOpen()) setLoadingOlder(false);
+		}
+	}, []);
+
+	return { messages, loading, hasMore, loadingOlder, loadOlder };
 };
 export default useGetMessages;

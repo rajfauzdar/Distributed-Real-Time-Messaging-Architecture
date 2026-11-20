@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { useSocketContext } from "../context/SocketContext";
 import useConversation from "../zustand/useConversation";
+import { fetchUnread, isTabVisible, markOpenChatRead, markRead } from "../utils/readState";
 
 import notificationSound from "../assets/sounds/notification.mp3";
 
@@ -29,6 +30,9 @@ const useListenMessages = () => {
 
 			if (selectedConversation?._id === newMessage.senderId) {
 				addMessage({ ...newMessage, shouldShake: true });
+				// only counts as read if the user can actually see it; otherwise it stays unread until they come back
+				if (isTabVisible()) markRead(newMessage.senderId, newMessage.createdAt);
+				else incrementUnread(newMessage.senderId);
 			} else {
 				// belongs to a chat that isn't open: show an unread badge instead of polluting the open thread
 				incrementUnread(newMessage.senderId);
@@ -46,14 +50,28 @@ const useListenMessages = () => {
 
 		const handleStopTyping = ({ from }) => clearTyping(from);
 
+		// real unread counts from the server: on first connect and again after every reconnect
+		// (messages may have arrived while the socket was down)
+		const handleConnect = () => fetchUnread();
+		socket.on("connect", handleConnect);
+		if (socket.connected) fetchUnread();
+
+		// coming back to the tab: whatever is open has now been seen
+		const handleVisibility = () => {
+			if (isTabVisible()) markOpenChatRead();
+		};
+		document.addEventListener("visibilitychange", handleVisibility);
+
 		socket.on("newMessage", handleNewMessage);
 		socket.on("typing", handleTyping);
 		socket.on("stopTyping", handleStopTyping);
 
 		return () => {
+			socket.off("connect", handleConnect);
 			socket.off("newMessage", handleNewMessage);
 			socket.off("typing", handleTyping);
 			socket.off("stopTyping", handleStopTyping);
+			document.removeEventListener("visibilitychange", handleVisibility);
 			typingTimers.forEach(clearTimeout);
 			useConversation.setState({ typingFrom: {} });
 		};

@@ -33,7 +33,7 @@ const Conversation = ({ conversation, lastIdx, emoji }) => {
 							<p className='font-bold text-gray-200'>{conversation.fullName}</p>
 							{isTyping && <p className='text-xs text-sky-200 italic'>typing…</p>}
 						</div>
-						{unread > 0 && <span className='badge badge-sm badge-primary'>{unread}</span>}
+						{unread > 0 && <span className='badge badge-sm badge-primary'>{unread > 99 ? "99+" : unread}</span>}
 						<span className='text-xl'>{emoji}</span>
 					</div>
 				</div>

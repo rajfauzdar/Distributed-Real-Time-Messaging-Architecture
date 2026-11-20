@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import useGetMessages from "../../hooks/useGetMessages";
 import useConversation from "../../zustand/useConversation";
 import MessageSkeleton from "../skeletons/MessageSkeleton";
 import Message from "./Message";
 
+const LOAD_OLDER_THRESHOLD_PX = 80; // start loading the previous page when the user scrolls this close to the top
+
 const Messages = () => {
-	const { messages, loading } = useGetMessages();
+	const { messages, loading, hasMore, loadingOlder, loadOlder } = useGetMessages();
 	const selectedId = useConversation((s) => s.selectedConversation?._id);
 	const outbox = useConversation((s) => s.outbox);
 	const recentSent = useConversation((s) => s.recentSent);
-	const bottomRef = useRef();
+
+	const containerRef = useRef(null);
+	const bottomRef = useRef(null);
+	const anchorRef = useRef(null); // scroll position captured right before an older page is prepended
+	const lastKeyRef = useRef(null); // key of the newest message, to tell "new message" from "older page prepended"
 
 	// confirmed messages + the ones still being delivered (optimistic), oldest first
 	const visible = useMemo(() => {
@@ -36,15 +42,65 @@ const Messages = () => {
 		return [...confirmed, ...pending];
 	}, [messages, outbox, recentSent, selectedId]);
 
+	const handleLoadOlder = async () => {
+		const el = containerRef.current;
+		if (!el) return;
+		anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
+		const loaded = await loadOlder();
+		if (!loaded) anchorRef.current = null;
+	};
+
+	// After an older page is rendered, keep the message the user was looking at in the same place on screen.
+	const oldestId = messages[0]?._id;
+	useLayoutEffect(() => {
+		const el = containerRef.current;
+		const anchor = anchorRef.current;
+		if (!el || !anchor) return;
+		el.scrollTop = el.scrollHeight - anchor.height + anchor.top;
+		anchorRef.current = null;
+	}, [oldestId]);
+
+	// Scroll to the bottom only when the NEWEST message changes (a new message, or the first load of a chat) -
+	// never when older messages are added at the top.
+	const lastKey = visible.length ? visible[visible.length - 1].clientId || visible[visible.length - 1]._id : null;
 	useEffect(() => {
+		if (lastKey === null) {
+			lastKeyRef.current = null;
+			return;
+		}
+		const firstLoad = lastKeyRef.current === null;
+		lastKeyRef.current = lastKey;
 		const timer = setTimeout(() => {
-			bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-		}, 100);
+			bottomRef.current?.scrollIntoView({ behavior: firstLoad ? "auto" : "smooth" });
+		}, 50);
 		return () => clearTimeout(timer);
-	}, [visible.length]);
+	}, [lastKey]);
+
+	// a different chat starts from scratch
+	useEffect(() => {
+		lastKeyRef.current = null;
+		anchorRef.current = null;
+	}, [selectedId]);
+
+	const handleScroll = (e) => {
+		if (e.currentTarget.scrollTop < LOAD_OLDER_THRESHOLD_PX && hasMore && !loadingOlder && !loading) handleLoadOlder();
+	};
 
 	return (
-		<div className='px-4 flex-1 overflow-auto'>
+		<div ref={containerRef} onScroll={handleScroll} className='px-4 flex-1 overflow-auto'>
+			{!loading && hasMore && (
+				<div className='flex justify-center py-2'>
+					<button
+						type='button'
+						className='btn btn-xs btn-ghost text-gray-300'
+						onClick={handleLoadOlder}
+						disabled={loadingOlder}
+					>
+						{loadingOlder ? <span className='loading loading-spinner loading-xs'></span> : "Load older messages"}
+					</button>
+				</div>
+			)}
+
 			{!loading &&
 				// key by clientId so a bubble doesn't remount when its temporary entry is replaced by the saved message
 				visible.map((message) => <Message key={message.clientId || message._id} message={message} />)}
